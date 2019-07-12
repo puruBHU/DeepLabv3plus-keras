@@ -17,8 +17,13 @@ from keras.layers import Input
 
 from keras import backend as K
 
-from keras.applications import VGG16, MobileNetV2, ResNet50
+# IMPORT BACKBONE MODELS
+
+from ResNetModel import ResNet_50, ResNet_101
+from VGGModel import VGG16Net
 from XceptionModel import Xception 
+from MobileNetModel import MobileNetV2_modified
+
 from utility import sep_conv_bn_relu, conv_bn_relu
 from keras.utils import plot_model
 from resnet import ResnetBuilder
@@ -63,11 +68,11 @@ def ASPP():
 def DeepLabV3plus(backbone='vgg16',OS=16, shape=(None,None,3), num_classes=2):
     
     if backbone == 'vgg16':
-        backbone_model = VGG16(weights='imagenet',include_top=False, input_shape=shape)
-       
-        if OS == 16:
-            low_level_feature_layer  = backbone_model.get_layer('block3_conv3').output
-            high_level_feature_layer = backbone_model.get_layer('block5_conv3').output
+        backbone_model = VGG16Net(input_shape = shape, OS = OS)
+        high_level_feature_layer = backbone_model.layers[-1].output
+        low_level_feature_layer  = backbone_model.get_layer('block3_conv3').output
+
+            
             
     elif backbone == 'xception':
         backbone_model = Xception(input_shape=shape)
@@ -76,23 +81,25 @@ def DeepLabV3plus(backbone='vgg16',OS=16, shape=(None,None,3), num_classes=2):
            high_level_feature_layer = backbone_model.layers[-1].output
            
     elif backbone == 'mobilenetv2':
-        backbone_model = MobileNetV2(input_shape=shape, include_top=False, weights='imagenet')
-        low_level_feature_layer =  backbone_model.get_layer('block_3_expand_relu').output
-        high_level_feature_layer = backbone_model.get_layer('block_13_expand_relu').output
         
-    
+        backbone_model = MobileNetV2_modified(input_shape=shape, OS = OS)
+        
+        high_level_feature_layer = backbone_model.layers[-1].output
+        low_level_feature_layer =  backbone_model.get_layer('block_3_expand_relu').output
+        
     elif backbone == 'resnet101':
-        resnet = ResnetBuilder()
-        backbone_model =  resnet.build_resnet_101(input_shape=shape, include_top=False)
+        backbone_model = ResNet_101(input_shape = shape, OS = OS)
         backbone_model.load_weights(resnet101_weight_path, by_name=True)
         
-        low_level_feature_layer = backbone_model.get_layer('activation_10').output
-        high_level_feature_layer = backbone_model.get_layer('activation_91').output
+        high_level_feature_layer = backbone_model.layers[-1].output
+        low_level_feature_layer  = backbone_model.get_layer('conv2_block3_out').output
     
     elif backbone == 'resnet50':
-        backbone_model = ResNet50(input_shape=shape, include_top=False, weights ='imagenet')
-        low_level_feature_layer = backbone_model.get_layer('activation_10').output
-        high_level_feature_layer = backbone_model.get_layer('activation_40').output
+        backbone_model = ResNet_50(input_shape = shape, OS = OS)
+        
+        high_level_feature_layer = backbone_model.layers[-1].output
+        low_level_feature_layer  = backbone_model.get_layer('conv2_block3_out').output
+        
         
     else:
         raise ValueError('Implementation for backbone "{}" is not present. Please choose from "vgg16, xception, mobilenetv2,' \
@@ -102,15 +109,19 @@ def DeepLabV3plus(backbone='vgg16',OS=16, shape=(None,None,3), num_classes=2):
     x = ASPP()(high_level_feature_layer)
     
     x = conv_bn_relu(filters=256, kernel_size=(1,1), name='feature_reduce_high_level')(x)
-    x = UpSampling2D(size=(4,4), interpolation='bilinear', name='upsample_4x_first')(x)
     
+    if OS == 16:
+        x = UpSampling2D(size=(4,4), interpolation='bilinear', name='upsample_4x_first')(x)
+    elif OS == 8:
+        x = UpSampling2D(size=(2,2), interpolation='bilinear', name='upsample_2x_first')(x)
+        
     low_level_features = conv_bn_relu(filters=48, kernel_size=(1,1), name='bottleneck_low_level_features')(low_level_feature_layer)
     
     x = Concatenate()([x, low_level_features])
     x = sep_conv_bn_relu(filters=256, kernel_size=(3,3), name='sep_conv_last')(x)
     
     x = UpSampling2D(size=(4,4), interpolation='bilinear', name='upsample_4x_second')(x)
-    
+
     x = Conv2D(filters=num_classes, kernel_size=(1,1), padding='same', name='logit')(x)
     x = Activation('softmax')(x)
     
@@ -119,8 +130,18 @@ def DeepLabV3plus(backbone='vgg16',OS=16, shape=(None,None,3), num_classes=2):
 
   
 if __name__ == '__main__':
+    
     with tf.device('/gpu:0'):
-        backbone = 'mobilenetv2'
-        model = DeepLabV3plus(backbone = backbone, shape=(512,512,3), num_classes=2)
-        plot_model(model=model, to_file='DeepLabV3plus_{}.png'.format(backbone), show_shapes=True, show_layer_names=True)
+        backbone = 'resnet50'
+        output_stride = 16
+        
+        model = DeepLabV3plus(backbone = backbone, 
+                              shape=(512,512,3), 
+                              num_classes=2, 
+                              OS = output_stride)
+        
+        plot_model(model=model, to_file='model_images/DeepLabV3plus_{}.png'.format(backbone), 
+                   show_shapes=True, 
+                   show_layer_names=True)
+        
         model.summary()
