@@ -26,12 +26,7 @@ from MobileNetModel import MobileNetV2_modified
 
 from utility import sep_conv_bn_relu, conv_bn_relu
 from keras.utils import plot_model
-from resnet import ResnetBuilder
 
-
-resnet101_weight_path = 'pre-trained_weights/ResNet-101-model.h5'
-
-xception_weight_path  = 'pr-trained_weights/'  
 
 if K.image_data_format() == 'channels_last':
     ROW_AXIS = 1
